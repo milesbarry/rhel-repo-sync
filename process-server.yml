@@ -1,0 +1,52 @@
+- name: Create the full path to store the certificates on target
+  file:
+    path: '{{ config_path }}/certs/{{ rhel_server.value.release }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: yes
+
+- name: Create a temp directory for certs and configurations on ansible host
+  tempfile:
+    state: directory
+    prefix: 'repo-'
+    suffix: '-certs'
+  register: cert_tmp
+  delegate_to: localhost
+
+- name: Find SSL certificate and configuration files on {{ rhel_server.key }}
+  shell: ls /etc/pki/entitlement/* /etc/yum.repos.d/redhat.repo /etc/rhsm/ca/redhat-uep.pem
+  register: cert_files
+  delegate_to: '{{ rhel_server.key }}'
+  become: yes
+
+- name: Fetch all the required files from {{ rhel_server.key }} to the ansible host
+  fetch:
+    flat: yes
+    src: "{{ item }}"
+    dest: '{{ cert_tmp.path }}/'
+  with_items: '{{ cert_files.stdout_lines }}'
+  delegate_to: '{{ rhel_server.key }}'
+  become: yes
+
+- name: Copy the SSL certificates to the target host
+  copy:
+    src: '{{ item }}'
+    dest: '{{ config_path }}/certs/{{ rhel_server.value.release }}/'
+    mode: '0600'
+  with_fileglob:
+    - "{{ cert_tmp.path }}/*.pem"
+  become: yes
+
+- name: Process each repository in the repos list
+  include_tasks: process-repo.yml
+  with_items: '{{ rhel_server.value.repos }}'
+  loop_control:
+    loop_var: rhel_repo
+
+- name: Delete the {{ cert_tmp.path }} directory
+  file:
+    path: '{{ cert_tmp.path }}/'
+    state: absent
+  delegate_to: localhost

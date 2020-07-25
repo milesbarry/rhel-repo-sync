@@ -1,0 +1,28 @@
+- name: Extract and refactor [{{ rhel_repo }}]
+  shell: "{{ item }}"
+  args:
+    warn: no
+  with_items:
+    - sed -n "/\[{{ rhel_repo }}\]/,/^$/p" '{{ cert_tmp.path }}/redhat.repo' | awk 'NF' > {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i "s|/etc/pki/entitlement|{{ config_path }}/certs/{{ rhel_server.value.release }}|g" {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i "s|/etc/rhsm/ca|{{ config_path }}/certs/{{ rhel_server.value.release }}|g" {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i "s|enabled = 1|enabled = 0|g" {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i '/^ui_repoid_vars/d' {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i 's|$basearch|x86_64|g' {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+    - sed -i "s|\$releasever|{{ rhel_server.value.release }}|g" {{ cert_tmp.path }}/{{ rhel_repo }}.repo
+  delegate_to: localhost
+
+- name: Copy the {{ rhel_repo }}.repo to the {{ config_path }}/repos.d directory
+  copy:
+    src: '{{ cert_tmp.path }}/{{ rhel_repo }}.repo'
+    dest: '{{ config_path }}/repos.d/{{ rhel_repo }}.repo'
+    mode: '0600'
+  become: yes
+
+- name: Syncronize the [{{ rhel_repo }}] repository
+  shell: reposync -c {{ config_path }}/yum.conf -q -n -d -r {{ rhel_repo }} -p {{ repo_base }}/{{ rhel_server.value.release }}
+  become: yes
+
+- name: Update the [{{ rhel_repo }}] repository metadata
+  shell: createrepo {{ repo_base }}/{{ rhel_server.value.release }}/{{ rhel_repo }}
+  become: yes
